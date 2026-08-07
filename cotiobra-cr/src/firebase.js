@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -19,3 +19,10 @@ const app = initializeApp(firebaseConfig);
 // Exporta las instancias de Auth y Firestore para usarlas en App.jsx y Login.jsx
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// La sesión se cierra al cerrar la pestaña/navegador en vez de persistir
+// indefinidamente en IndexedDB. Si prefieres que el login se recuerde
+// entre sesiones (como antes), quita este bloque.
+setPersistence(auth, browserSessionPersistence).catch((error) => {
+  console.error("Error configurando la persistencia de sesión:", error);
+});

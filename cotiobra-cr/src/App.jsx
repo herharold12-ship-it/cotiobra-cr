@@ -212,24 +212,62 @@ export default function App() {
 
   // --- ACCIÓN 4: EXPORTAR A PDF ---
   const handleExportarPDF = () => {
-  try {
-    descargarProforma({
-      numProforma: 'PROF-001',
-      fecha: new Date().toLocaleDateString(),
-      validez: '15 días hábiles',
-      cliente: typeof cliente !== 'undefined' ? cliente : 'Cliente General',
-      proyecto: 'Proyecto / Obra General',
-      items: typeof listaMateriales !== 'undefined' ? listaMateriales : [
-        { descripcion: 'Mano de Obra y Servicios', cantidad: 1, precioUnitario: 50000 }
-      ],
-      porcentajeIva: 13,
-      adelanto: '50% al iniciar / 50% contra entrega',
-    });
-  } catch (error) {
-    console.error("Error al exportar PDF:", error);
-    alert("Hubo un error al generar el PDF. Revisa la consola.");
-  }
-};
+    try {
+      // Combina todas las tablas dinámicas en una sola lista de ítems para el PDF
+      const itemsMateriales = materiales.map(m => ({
+        descripcion: m.descripcion,
+        unidad: m.unidad,
+        cantidad: m.cantidad,
+        precioUnitario: m.precioUnitario,
+      }));
+      const itemsManoDeObra = manoDeObra.map(m => ({
+        descripcion: m.concepto,
+        unidad: 'Día(s)',
+        cantidad: m.horasDias,
+        precioUnitario: m.costoUnidad,
+      }));
+      const itemsEquipos = equipos.map(e => ({
+        descripcion: e.descripcion,
+        unidad: 'Día(s)',
+        cantidad: e.dias,
+        precioUnitario: e.costoDia,
+      }));
+      const itemsSubcontratos = subcontratos.map(s => ({
+        descripcion: s.servicio,
+        unidad: 'Global',
+        cantidad: 1,
+        precioUnitario: s.costoTotal,
+      }));
+
+      const todosLosItems = [...itemsMateriales, ...itemsManoDeObra, ...itemsEquipos, ...itemsSubcontratos];
+
+      descargarProforma({
+        numProforma: cotizacion.numeroCotizacion,
+        fecha: new Date().toLocaleDateString(),
+        validez: cotizacion.validez || '15 días hábiles',
+        cedulaEmisor: cotizacion.cedula,
+        telefonoEmisor: cotizacion.telefono,
+        correoEmisor: cotizacion.correo,
+        cliente: cliente.nombre || 'Cliente General',
+        empresaCliente: cliente.empresa,
+        proyecto: cliente.proyecto || 'Proyecto / Obra General',
+        ubicacion: cliente.ubicacion,
+        items: todosLosItems.length > 0 ? todosLosItems : [
+          { descripcion: 'Mano de Obra y Servicios', cantidad: 1, precioUnitario: 50000 }
+        ],
+        porcentajeIva: porcentajeIva,
+        adelanto: condiciones.adelanto,
+        tiempoEjecucion: condiciones.tiempoEjecucion,
+        garantia: condiciones.garantia,
+        cuentaIBAN: cotizacion.cuentaIBAN,
+        banco: cotizacion.banco,
+        notas: condiciones.notas,
+      });
+    } catch (error) {
+      console.error("Error al exportar PDF:", error);
+      alert("Hubo un error al generar el PDF. Revisa la consola.");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8">
