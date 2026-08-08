@@ -3,10 +3,23 @@ import React, { useState, useEffect } from 'react';
 import html2pdf from 'html2pdf.js';
 // Importamos la configuración y métodos de Firebase
 import { auth, db } from './firebase'; // Asegúrate de ajustar la ruta si tu archivo firebase.js está en otro folder
-import { signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { collection, addDoc, getDocs, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import Login from './Login';
 
 export default function App() {
+  // --- ESTADO DE AUTENTICACIÓN ---
+  const [usuario, setUsuario] = useState(null);
+  const [verificandoSesion, setVerificandoSesion] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setUsuario(user);
+      setVerificandoSesion(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const [vistaActual, setVistaActual] = useState('cotizador');
   const [cargandoGuardado, setCargandoGuardado] = useState(false);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
@@ -268,6 +281,20 @@ export default function App() {
       alert("Hubo un error al generar el PDF. Revisa la consola.");
     }
   };
+
+  // --- CONTROL DE ACCESO: mientras se verifica la sesión ---
+  if (verificandoSesion) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-300">
+        Verificando sesión...
+      </div>
+    );
+  }
+
+  // --- CONTROL DE ACCESO: si no hay usuario autenticado, muestra el login ---
+  if (!usuario) {
+    return <Login />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans p-4 md:p-8">
