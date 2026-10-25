@@ -265,8 +265,11 @@ export const crearDocumentoPdf = (datos) => {
   doc.text(formatearCRCPdf(totales.totalGeneral), ANCHO_PAGINA - MARGEN, y, { align: 'right' });
 
   // ---------- Condiciones ----------
-  y += 12;
-  asegurarEspacio(30);
+  y += 14;
+  asegurarEspacio(34);
+  doc.setDrawColor(...COLOR_LINEA);
+  doc.setLineWidth(0.3);
+  doc.line(MARGEN, y - 6, ANCHO_PAGINA - MARGEN, y - 6);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
