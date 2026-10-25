@@ -1,25 +1,25 @@
 rules_version = '2';
 
-// Reglas de Firestore para CotiObra CR.
-// Solo usuarios autenticados pueden leer o escribir los datos de la empresa:
-// cotizaciones, proyectos (obras) y facturas de gasto real.
-// Publicar con: firebase deploy --only firestore:rules
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Solo usuarios autenticados pueden leer y escribir cotizaciones
     match /cotizaciones/{cotizacionId} {
-      allow read, create, update, delete: if request.auth != null;
+      allow read, write: if request.auth != null;
     }
 
+    // Proyectos / obras del facturero de gastos
     match /proyectos/{proyectoId} {
-      allow read, create, update, delete: if request.auth != null;
+      allow read, write: if request.auth != null;
     }
 
+    // Facturas de gasto real de cada proyecto
     match /facturas/{facturaId} {
-      allow read, create, update, delete: if request.auth != null;
+      allow read, write: if request.auth != null;
     }
 
-    // El resto de la base de datos queda cerrado por defecto.
-    match /{documento=**} {
+    // Bloquea cualquier otra colección por defecto
+    match /{document=**} {
       allow read, write: if false;
     }
   }
