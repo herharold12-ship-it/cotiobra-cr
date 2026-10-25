@@ -1,0 +1,53 @@
+# Publica CotiObra CR en Firebase Hosting y aplica las reglas de Firestore.
+# Requiere el secreto FIREBASE_SERVICE_ACCOUNT (JSON de la cuenta de servicio).
+name: Deploy a Firebase
+
+on:
+  workflow_dispatch:
+    inputs:
+      solo_hosting:
+        description: 'Publicar solo el sitio (sin reglas de Firestore)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cotiobra-cr/package-lock.json
+
+      - name: Instalar dependencias de la app
+        run: npm --prefix cotiobra-cr ci
+
+      - name: Compilar
+        run: npm run build
+
+      - name: Autenticar con Firebase
+        env:
+          CUENTA_SERVICIO: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$CUENTA_SERVICIO" ]; then
+            echo "Falta el secreto FIREBASE_SERVICE_ACCOUNT en el repositorio." >&2
+            exit 1
+          fi
+          echo "$CUENTA_SERVICIO" > "$RUNNER_TEMP/firebase-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-sa.json" >> "$GITHUB_ENV"
+
+      - name: Publicar
+        run: |
+          if [ "${{ inputs.solo_hosting }}" = "true" ]; then
+            npx --yes firebase-tools deploy --only hosting --project app-cotizador-obra --non-interactive
+          else
+            npx --yes firebase-tools deploy --only hosting,firestore:rules --project app-cotizador-obra --non-interactive
+          fi

@@ -27,20 +27,61 @@ npm run build      # build de producción en dist/
 npm run preview    # sirve el build en http://localhost:4173
 ```
 
-## Configuración de Firebase
+## Publicar en Firebase Hosting
 
-La configuración web está en `src/firebase.js`. Para desplegar las reglas de
-Firestore (solo usuarios autenticados pueden leer/escribir `cotizaciones`):
+El `firebase.json` de la **raíz del repo** publica `cotiobra-cr/dist`, ejecuta el
+build automáticamente antes de subir (predeploy) y apunta las reglas a
+`firestore.rules`. El proyecto destino está en `.firebaserc`
+(`app-cotizador-obra`).
+
+### Primera vez
 
 ```bash
+# 1) dependencias de la app (una sola vez)
+npm --prefix cotiobra-cr install
+
+# 2) instalar la CLI de Firebase (una sola vez)
+npm install -g firebase-tools      # alternativa sin instalar: usar npx firebase-tools
+
+# 3) iniciar sesión con la cuenta dueña del proyecto
 firebase login
-firebase deploy --only firestore:rules
-firebase deploy --only hosting
 ```
 
-`firebase.json` publica la carpeta `dist/` de esta app y ejecuta `npm run build`
-antes de cada deploy. Recuerda crear los usuarios en **Authentication → Users**:
-la app no permite registro público, solo inicio de sesión.
+### Publicar
+
+Desde la **raíz del repo** (donde está este `firebase.json`):
+
+```bash
+npm run deploy:hosting     # compila y publica la app
+npm run deploy:rules       # publica las reglas de Firestore
+npm run deploy:todo        # ambas cosas
+npm run deploy             # todo lo configurado en firebase.json
+```
+
+Al terminar, la app queda en:
+
+- https://app-cotizador-obra.web.app
+- https://app-cotizador-obra.firebaseapp.com
+
+> Si ejecutas `firebase deploy` desde `cotiobra-cr/` (la carpeta de la app) se
+> usa el `firebase.json` interno, que publica su propio `dist/` pero **no**
+> despliega reglas de Firestore.
+
+### Despliegue desde GitHub (opcional)
+
+Existe el workflow `.github/workflows/deploy-firebase.yml` (solo ejecución
+manual). Para usarlo:
+
+1. Genera una cuenta de servicio: consola de Firebase → **Configuración del
+   proyecto → Cuentas de servicio → Generar nueva clave privada** (JSON).
+2. En GitHub → **Settings → Secrets and variables → Actions → New repository
+   secret**, nombre `FIREBASE_SERVICE_ACCOUNT`, valor: el JSON completo.
+3. Pestaña **Actions → Deploy a Firebase → Run workflow**.
+
+### Cuentas de usuario
+
+La app no permite registro público: crea los usuarios en
+**Authentication → Users** y habilita el método **Correo electrónico/contraseña**.
 
 ## Estructura
 
