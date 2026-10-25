@@ -1,1 +1,35 @@
 @import "tailwindcss";
+
+/*
+  Ajustes base: el tema de la app es oscuro, así que el fondo del documento
+  y los colores de los controles nativos deben acompañarlo.
+*/
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #020617;
+  color: #e2e8f0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Los inputs numéricos no necesitan las flechitas en las tablas del cotizador. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  margin: 0;
+}
+
+/* Los encabezados de tabla se mantienen visibles al hacer scroll en la tabla. */
+table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}

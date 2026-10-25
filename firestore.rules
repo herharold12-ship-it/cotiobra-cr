@@ -1,0 +1,17 @@
+rules_version = '2';
+
+// Reglas de Firestore para CotiObra CR.
+// Solo usuarios autenticados pueden leer o escribir cotizaciones.
+// Publicar con: firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /cotizaciones/{cotizacionId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // El resto de la base de datos queda cerrado por defecto.
+    match /{documento=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -67,3 +67,11 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Build de la app (se genera con npm run build)
+dist/
+cotiobra-cr/dist/
+node_modules/
+# Firebase
+.firebase/
+firebase-debug.log*
