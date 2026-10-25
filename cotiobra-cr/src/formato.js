@@ -64,3 +64,34 @@ export const limpiarNombreArchivo = (valor, respaldo = 'cotizacion') => {
     .replace(/^_+|_+$/g, '');
   return limpio || respaldo;
 };
+
+/** Fecha de hoy en formato ISO local (aaaa-mm-dd), sin desfase de zona horaria. */
+export const hoyISO = () => {
+  const ahora = new Date();
+  return `${ahora.getFullYear()}-${DOS_DIGITOS(ahora.getMonth() + 1)}-${DOS_DIGITOS(ahora.getDate())}`;
+};
+
+/** "2026-03-09" -> "09/03/2026" (y sin cambios si no es una fecha ISO válida). */
+export const fechaISOaTexto = (iso) => {
+  if (typeof iso !== 'string') return '';
+  const partes = iso.slice(0, 10).split('-');
+  if (partes.length !== 3) return iso;
+  const [anio, mes, dia] = partes;
+  if (!anio || !mes || !dia) return iso;
+  return `${dia}/${mes}/${anio}`;
+};
+
+/** Descarga un archivo de texto en el navegador (CSV, etc.). */
+export const descargarTexto = (contenido, nombreArchivo, tipoMime = 'text/csv;charset=utf-8') => {
+  const blob = new Blob([contenido], { type: tipoMime });
+  const url = URL.createObjectURL(blob);
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = nombreArchivo;
+  enlace.rel = 'noopener';
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return nombreArchivo;
+};

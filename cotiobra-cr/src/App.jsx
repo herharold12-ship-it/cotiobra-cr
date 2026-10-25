@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import {
   addDoc,
@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './firebase.js';
 import Login from './Login';
+import Gastos from './gastos/Gastos.jsx';
 import { calcularTotales, construirItems, PORCENTAJES_POR_DEFECTO } from './calculos.js';
 import { aMonto, formatearCRC, formatearFecha } from './formato.js';
 
@@ -98,7 +99,7 @@ export default function App() {
     return () => clearTimeout(temporizador);
   }, [aviso]);
 
-  const notificar = (texto, tipo = 'exito') => setAviso({ texto, tipo });
+  const notificar = useCallback((texto, tipo = 'exito') => setAviso({ texto, tipo }), []);
 
   // --- NAVEGACIÓN Y ESTADO DE CARGA ---
   const [vistaActual, setVistaActual] = useState('cotizador');
@@ -416,6 +417,17 @@ export default function App() {
           </button>
           <button
             type="button"
+            onClick={() => setVistaActual('gastos')}
+            className={`flex items-center gap-2 font-medium text-sm px-4 py-2 rounded-lg transition-colors ${
+              vistaActual === 'gastos'
+                ? 'bg-blue-600 text-white'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+            }`}
+          >
+            <span>🧾</span> Gastos
+          </button>
+          <button
+            type="button"
             onClick={handleCambiarVistaHistorial}
             className={`flex items-center gap-2 font-medium text-sm px-4 py-2 rounded-lg transition-colors ${
               vistaActual === 'historial'
@@ -441,7 +453,7 @@ export default function App() {
 
       {/* PANEL PRINCIPAL */}
       <main className="max-w-6xl mx-auto bg-slate-900 border border-slate-800 rounded-xl p-4 md:p-6 shadow-xl space-y-8">
-        {vistaActual === 'cotizador' ? (
+        {vistaActual === 'cotizador' && (
           <div id="area-cotizacion" className="space-y-8 p-1">
             {/* BARRA DE BOTONES DE ACCIÓN */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
@@ -990,7 +1002,9 @@ export default function App() {
               </div>
             </div>
           </div>
-        ) : (
+        )}
+
+        {vistaActual === 'historial' && (
           /* VISTA HISTORIAL DE FIRESTORE */
           <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
@@ -1079,6 +1093,11 @@ export default function App() {
               </div>
             )}
           </div>
+        )}
+
+        {vistaActual === 'gastos' && (
+          /* VISTA FACTURERO DE GASTOS REALES */
+          <Gastos usuario={usuario} notificar={notificar} />
         )}
       </main>
     </div>
