@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Solo usuarios autenticados pueden leer y escribir cotizaciones
+    match /cotizaciones/{cotizacionId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Proyectos / obras del facturero de gastos
+    match /proyectos/{proyectoId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Facturas de gasto real de cada proyecto
+    match /facturas/{facturaId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Bloquea cualquier otra colección por defecto
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
