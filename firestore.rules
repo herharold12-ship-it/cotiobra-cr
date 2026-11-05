@@ -3,19 +3,103 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Solo usuarios autenticados pueden leer y escribir cotizaciones
+    // -------- Ayudas de permisos --------
+    function autenticado() {
+      return request.auth != null;
+    }
+
+    // Correo del usuario en minúsculas (llave del documento en `accesos`).
+    function correo() {
+      return request.auth.token.email.lower();
+    }
+
+    function correoAdmin() {
+      return 'rhdrian12@gmail.com';
+    }
+
+    // Documento de autorización del usuario que hace la petición.
+    function miAcceso() {
+      return get(/databases/$(database)/documents/accesos/$(correo())).data;
+    }
+
+    function tengoAcceso() {
+      return autenticado() && exists(/databases/$(database)/documents/accesos/$(correo()))
+        && miAcceso().get('activo', true) == true;
+    }
+
+    // El dueño de la empresa siempre es administrador.
+    function esAdmin() {
+      return autenticado() && (correo() == correoAdmin()
+        || (tengoAcceso() && miAcceso().get('rol', 'lectura') == 'admin'));
+    }
+
+    // Administrador o capturista: los únicos que registran movimientos.
+    function puedeEscribir() {
+      return esAdmin() || (tengoAcceso() && miAcceso().get('rol', 'lectura') == 'capturista');
+    }
+
+    // -------- Cotizaciones --------
     match /cotizaciones/{cotizacionId} {
-      allow read, write: if request.auth != null;
+      allow read: if autenticado();
+      allow create, update: if puedeEscribir();
+      allow delete: if esAdmin();
     }
 
-    // Proyectos / obras del facturero de gastos
+    // -------- Proyectos / obras --------
     match /proyectos/{proyectoId} {
-      allow read, write: if request.auth != null;
+      allow read: if autenticado();
+      allow create, update: if puedeEscribir();
+      allow delete: if esAdmin();
     }
 
-    // Facturas de gasto real de cada proyecto
+    // -------- Facturas de gasto real --------
     match /facturas/{facturaId} {
-      allow read, write: if request.auth != null;
+      allow read: if autenticado();
+      allow create, update: if puedeEscribir();
+      allow delete: if esAdmin();
+    }
+
+    // -------- Planilla (pagos por jornal) --------
+    match /planillas/{planillaId} {
+      allow read: if autenticado();
+      allow create, update: if puedeEscribir();
+      allow delete: if esAdmin();
+    }
+
+    // -------- Proveedores guardados (autocompletado) --------
+    match /proveedores/{proveedorId} {
+      allow read: if autenticado();
+      allow create, update: if puedeEscribir();
+      allow delete: if esAdmin();
+    }
+
+    // -------- Cuentas / cajas: solo el administrador las administra --------
+    match /cuentas/{cuentaId} {
+      allow read: if autenticado();
+      allow create, update, delete: if esAdmin();
+    }
+
+    // -------- Usuarios: solo el administrador autoriza correos --------
+    match /accesos/{email} {
+      // Cada persona puede leer su propia autorización; el admin ve todas.
+      allow read: if autenticado() && (correo() == email || esAdmin());
+      allow create, update, delete: if esAdmin();
+    }
+
+    match /usuarios/{uid} {
+      allow read: if autenticado() && (request.auth.uid == uid || esAdmin());
+
+      // Al entrar por primera vez, la persona crea su propio perfil, pero solo
+      // con el rol que el administrador ya le autorizó en `accesos`.
+      allow create: if autenticado()
+        && request.auth.uid == uid
+        && exists(/databases/$(database)/documents/accesos/$(correo()))
+        && request.resource.data.email == correo()
+        && request.resource.data.rol == miAcceso().get('rol', 'lectura')
+        && request.resource.data.activo == true;
+
+      // Solo el administrador cambia roles o activa/desactiva personas.
+      allow update, delete: if esAdmin();
     }
 
     // Bloquea cualquier otra colección por defecto

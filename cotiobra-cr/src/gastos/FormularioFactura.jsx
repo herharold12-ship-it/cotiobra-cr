@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
-import { CATEGORIAS, METODOS_PAGO, categoriaPorId } from './categorias.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { CATEGORIAS_POR_GRUPO, METODOS_PAGO, categoriaPorId } from './categorias.js';
 import { normalizarFactura, validarFactura } from './resumen.js';
+import { buscarProveedor, filtrarProveedores } from './proveedores.js';
 import { aMonto, aNumero, fechaISOaTexto, formatearCRC } from '../formato.js';
 
 const claseCampo =
@@ -15,9 +16,20 @@ const redondear = (valor) => Math.round(aNumero(valor));
  * El IVA y el total se completan solos, pero se pueden ajustar a mano
  * (algunas facturas traen redondeos o exenciones).
  */
-export default function FormularioFactura({ factura, proyectos, guardando, onGuardar, onCerrar }) {
+export default function FormularioFactura({
+  factura,
+  proyectos,
+  cuentas = [],
+  proveedores = [],
+  guardando,
+  onGuardar,
+  onCerrar,
+}) {
   const [datos, setDatos] = useState(() => normalizarFactura(factura));
   const [error, setError] = useState('');
+  const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
+  const [resaltado, setResaltado] = useState(0);
+  const contenedorProveedor = useRef(null);
 
   useEffect(() => {
     const alPresionarTecla = (evento) => {
@@ -27,9 +39,24 @@ export default function FormularioFactura({ factura, proyectos, guardando, onGua
     return () => document.removeEventListener('keydown', alPresionarTecla);
   }, [onCerrar]);
 
+  // Cierra la lista de proveedores al hacer clic fuera.
+  useEffect(() => {
+    const alHacerClic = (evento) => {
+      if (contenedorProveedor.current && !contenedorProveedor.current.contains(evento.target)) {
+        setMostrarSugerencias(false);
+      }
+    };
+    document.addEventListener('mousedown', alHacerClic);
+    return () => document.removeEventListener('mousedown', alHacerClic);
+  }, []);
+
   const actualizar = (campo, valor) => setDatos((previos) => ({ ...previos, [campo]: valor }));
 
-  // Al cambiar subtotal o tasa, se recalculan IVA y total.
+  const sugerencias = useMemo(
+    () => filtrarProveedores(proveedores, datos.proveedor, 7),
+    [proveedores, datos.proveedor],
+  );
+
   const recalcular = (base, tasa) => {
     const subtotal = redondear(base);
     const porcentaje = Math.min(100, Math.max(0, aNumero(tasa)));
@@ -56,6 +83,49 @@ export default function FormularioFactura({ factura, proyectos, guardando, onGua
     setDatos((previos) => ({ ...previos, ...recalcular(previos.subtotal, 13), tasaIva: 13 }));
   };
 
+  /** Al elegir un proveedor ya usado, precarga su clasificación, IVA y cuenta. */
+  const aplicarProveedor = (proveedor) => {
+    setDatos((previos) => {
+      const categoriaValida = proveedor.categoria && categoriaPorId(proveedor.categoria).id === proveedor.categoria;
+      const nuevaCategoria = categoriaValida ? proveedor.categoria : previos.categoria;
+      const nuevaTasa = proveedor.tasaIva === null || proveedor.tasaIva === undefined ? previos.tasaIva : proveedor.tasaIva;
+      const cuentaValida = proveedor.cuentaId && cuentas.some((cuenta) => cuenta.id === proveedor.cuentaId);
+      const siguiente = {
+        ...previos,
+        proveedor: proveedor.nombre,
+        categoria: nuevaCategoria,
+        tasaIva: nuevaTasa,
+        cuentaId: cuentaValida ? proveedor.cuentaId : previos.cuentaId,
+      };
+      return { ...siguiente, ...recalcular(siguiente.subtotal, nuevaTasa), tasaIva: nuevaTasa };
+    });
+    setMostrarSugerencias(false);
+  };
+
+  const alTeclearProveedor = (evento) => {
+    actualizar('proveedor', evento.target.value);
+    setMostrarSugerencias(true);
+    setResaltado(0);
+  };
+
+  const alPresionarEnProveedor = (evento) => {
+    if (!sugerencias.length) return;
+
+    if (evento.key === 'ArrowDown') {
+      evento.preventDefault();
+      setMostrarSugerencias(true);
+      setResaltado((indice) => (indice + 1) % sugerencias.length);
+    } else if (evento.key === 'ArrowUp') {
+      evento.preventDefault();
+      setResaltado((indice) => (indice - 1 + sugerencias.length) % sugerencias.length);
+    } else if (evento.key === 'Enter' && mostrarSugerencias) {
+      evento.preventDefault();
+      aplicarProveedor(sugerencias[resaltado] ?? sugerencias[0]);
+    } else if (evento.key === 'Escape') {
+      setMostrarSugerencias(false);
+    }
+  };
+
   const enviar = (evento) => {
     evento.preventDefault();
     const normalizada = normalizarFactura(datos);
@@ -69,6 +139,7 @@ export default function FormularioFactura({ factura, proyectos, guardando, onGua
   };
 
   const categoria = categoriaPorId(datos.categoria);
+  const proveedorConocido = buscarProveedor(proveedores, datos.proveedor);
 
   return (
     <div
@@ -77,10 +148,7 @@ export default function FormularioFactura({ factura, proyectos, guardando, onGua
       aria-modal="true"
       aria-labelledby="titulo-factura"
     >
-      <form
-        onSubmit={enviar}
-        className="w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl"
-      >
+      <form onSubmit={enviar} className="w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl my-auto">
         <header className="flex items-start justify-between gap-4 border-b border-slate-800 px-5 py-4">
           <div>
             <h2 id="titulo-factura" className="text-lg font-bold text-white">
@@ -150,54 +218,109 @@ export default function FormularioFactura({ factura, proyectos, guardando, onGua
               />
             </div>
 
-            <div>
+            {/* PROVEEDOR CON AUTOCOMPLETADO */}
+            <div className="relative" ref={contenedorProveedor}>
               <label className={claseEtiqueta} htmlFor="factura-proveedor">Proveedor / casa comercial *</label>
               <input
                 id="factura-proveedor"
                 type="text"
+                role="combobox"
+                aria-expanded={mostrarSugerencias}
+                aria-controls="lista-proveedores"
+                aria-autocomplete="list"
+                autoComplete="off"
                 className={claseCampo}
-                placeholder="Ej. EPA Liberia"
+                placeholder="Escribe las primeras letras…"
                 value={datos.proveedor}
-                onChange={(evento) => actualizar('proveedor', evento.target.value)}
+                onChange={alTeclearProveedor}
+                onFocus={() => setMostrarSugerencias(true)}
+                onKeyDown={alPresionarEnProveedor}
                 required
               />
+
+              {mostrarSugerencias && sugerencias.length > 0 && (
+                <ul
+                  id="lista-proveedores"
+                  role="listbox"
+                  className="absolute z-50 mt-1 w-full max-h-56 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 shadow-2xl"
+                >
+                  {sugerencias.map((proveedor, indice) => (
+                    <li key={proveedor.id ?? proveedor.nombre} role="option" aria-selected={indice === resaltado}>
+                      <button
+                        type="button"
+                        onMouseEnter={() => setResaltado(indice)}
+                        onClick={() => aplicarProveedor(proveedor)}
+                        className={`w-full text-left px-3 py-2 text-xs transition-colors ${
+                          indice === resaltado ? 'bg-blue-600/25 text-white' : 'text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <span className="block font-medium truncate">{proveedor.nombre}</span>
+                        <span className="block text-[10px] text-slate-500">
+                          {proveedor.veces > 0 ? `${proveedor.veces} factura(s) · ${formatearCRC(proveedor.total)}` : 'Sin historial'}
+                          {proveedor.categoria ? ` · ${categoriaPorId(proveedor.categoria).nombre}` : ''}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <p className="text-[11px] text-slate-500 mt-1">
+                {proveedorConocido
+                  ? `Proveedor guardado · ${proveedorConocido.veces} factura(s)`
+                  : 'Si es nuevo, se guarda al registrar la factura.'}
+              </p>
             </div>
 
-            <div className="sm:col-span-2 lg:col-span-3">
-              <label className={claseEtiqueta} htmlFor="factura-categoria">Clasificación del gasto</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {CATEGORIAS.map((opcion) => {
-                  const activa = datos.categoria === opcion.id;
-                  return (
-                    <button
-                      key={opcion.id}
-                      type="button"
-                      onClick={() => actualizar('categoria', opcion.id)}
-                      aria-pressed={activa}
-                      className={`flex items-center gap-2 text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
-                        activa
-                          ? 'border-blue-500 bg-blue-500/10 text-white'
-                          : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-600'
-                      }`}
-                    >
-                      <span aria-hidden="true">{opcion.icono}</span>
-                      <span className="truncate">{opcion.nombre}</span>
-                    </button>
-                  );
-                })}
-              </div>
+            <div>
+              <label className={claseEtiqueta} htmlFor="factura-cuenta">Pagado con</label>
               <select
-                id="factura-categoria"
-                className="sr-only"
-                value={datos.categoria}
-                onChange={(evento) => actualizar('categoria', evento.target.value)}
-                tabIndex={-1}
-                aria-hidden="true"
+                id="factura-cuenta"
+                className={claseCampo}
+                value={datos.cuentaId}
+                onChange={(evento) => actualizar('cuentaId', evento.target.value)}
               >
-                {CATEGORIAS.map((opcion) => (
-                  <option key={opcion.id} value={opcion.id}>{opcion.nombre}</option>
+                <option value="">Sin asignar</option>
+                {cuentas.map((cuenta) => (
+                  <option key={cuenta.id} value={cuenta.id}>
+                    {cuenta.nombre}{cuenta.titular ? ` — ${cuenta.titular}` : ''}
+                  </option>
                 ))}
               </select>
+              <p className="text-[11px] text-slate-500 mt-1">De qué cuenta o caja salió el dinero.</p>
+            </div>
+
+            {/* CLASIFICACIÓN AGRUPADA */}
+            <div className="sm:col-span-2 lg:col-span-3">
+              <span className={claseEtiqueta}>Clasificación del gasto</span>
+              <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                {CATEGORIAS_POR_GRUPO.map((bloque) => (
+                  <div key={bloque.grupo}>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">{bloque.grupo}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {bloque.categorias.map((opcion) => {
+                        const activa = datos.categoria === opcion.id;
+                        return (
+                          <button
+                            key={opcion.id}
+                            type="button"
+                            onClick={() => actualizar('categoria', opcion.id)}
+                            aria-pressed={activa}
+                            className={`flex items-center gap-2 text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
+                              activa
+                                ? 'border-blue-500 bg-blue-500/10 text-white'
+                                : 'border-slate-800 bg-slate-950 text-slate-300 hover:border-slate-600'
+                            }`}
+                          >
+                            <span aria-hidden="true">{opcion.icono}</span>
+                            <span className="truncate">{opcion.nombre}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -226,11 +349,7 @@ export default function FormularioFactura({ factura, proyectos, guardando, onGua
                 value={datos.tasaIva}
                 onChange={(evento) => cambiarTasa(evento.target.value)}
               />
-              <button
-                type="button"
-                onClick={ajustarIva13}
-                className="text-[11px] text-blue-400 hover:text-blue-300 mt-1"
-              >
+              <button type="button" onClick={ajustarIva13} className="text-[11px] text-blue-400 hover:text-blue-300 mt-1">
                 Aplicar 13% de Hacienda
               </button>
             </div>

@@ -23,7 +23,10 @@ export const facturaVacia = ({ fecha, proyectoId = '' } = {}) => ({
   impuesto: 0,
   total: 0,
   metodoPago: 'Efectivo',
+  cuentaId: '',
   notas: '',
+  historial: [],
+  origen: 'factura',
 });
 
 /** Convierte lo que viene de Firestore en un objeto con tipos correctos. */
@@ -52,7 +55,10 @@ export const normalizarFactura = (entrada = {}) => {
     impuesto,
     total,
     metodoPago: (entrada.metodoPago ?? 'Efectivo').toString(),
+    cuentaId: (entrada.cuentaId ?? '').toString(),
     notas: (entrada.notas ?? '').toString(),
+    historial: Array.isArray(entrada.historial) ? entrada.historial : [],
+    origen: (entrada.origen ?? 'factura').toString(),
   };
 };
 
@@ -71,11 +77,12 @@ export const validarFactura = (factura) => {
 const texto = (valor) => (valor ?? '').toString().toLowerCase();
 
 /** Busca por número de factura, proveedor, notas o categoría. */
-export const filtrarFacturas = (facturas = [], { busqueda = '', categoria = '', desde = '', hasta = '' } = {}) => {
+export const filtrarFacturas = (facturas = [], { busqueda = '', categoria = '', desde = '', hasta = '', cuentaId = '' } = {}) => {
   const termino = texto(busqueda).trim();
 
   return facturas.filter((factura) => {
     if (categoria && factura.categoria !== categoria) return false;
+    if (cuentaId && factura.cuentaId !== cuentaId) return false;
     if (desde && factura.fecha < desde) return false;
     if (hasta && factura.fecha > hasta) return false;
     if (!termino) return true;
@@ -185,6 +192,44 @@ export const calcularResumen = (facturas = []) => {
   return resumen;
 };
 
+/** Totales por cuenta/caja, para saber cuánto salió de cada bolsillo. */
+export const calcularResumenPorCuenta = (facturas = [], cuentas = []) => {
+  const mapa = new Map();
+
+  cuentas.forEach((cuenta) => {
+    mapa.set(cuenta.id, {
+      id: cuenta.id,
+      nombre: cuenta.nombre,
+      titular: cuenta.titular ?? '',
+      tipo: cuenta.tipo ?? 'otro',
+      cantidad: 0,
+      total: 0,
+    });
+  });
+
+  facturas.forEach((factura) => {
+    const clave = factura.cuentaId || '__sin__';
+    const actual = mapa.get(clave) ?? {
+      id: clave,
+      nombre: 'Sin cuenta asignada',
+      titular: '',
+      tipo: 'otro',
+      cantidad: 0,
+      total: 0,
+    };
+    actual.cantidad += 1;
+    actual.total += aNumero(factura.total);
+    mapa.set(clave, actual);
+  });
+
+  const totalGeneral = [...mapa.values()].reduce((acc, cuenta) => acc + cuenta.total, 0);
+
+  return [...mapa.values()]
+    .filter((cuenta) => cuenta.cantidad > 0 || cuenta.id !== '__sin__')
+    .map((cuenta) => ({ ...cuenta, porcentaje: totalGeneral > 0 ? (cuenta.total / totalGeneral) * 100 : 0 }))
+    .sort((a, b) => b.total - a.total);
+};
+
 /** Agrupa facturas por proyecto para el resumen de todos los proyectos. */
 export const resumenPorProyecto = (facturas = [], proyectos = []) =>
   proyectos
@@ -196,8 +241,9 @@ export const resumenPorProyecto = (facturas = [], proyectos = []) =>
     .sort((a, b) => b.total - a.total);
 
 /** CSV compatible con Excel en español (separador ; y BOM UTF-8). */
-export const facturasACSV = (facturas = [], { incluirProyecto = false, proyectos = [] } = {}) => {
+export const facturasACSV = (facturas = [], { incluirProyecto = false, proyectos = [], cuentas = [] } = {}) => {
   const nombreProyecto = (id) => proyectos.find((proyecto) => proyecto.id === id)?.nombre ?? '';
+  const nombreCuenta = (id) => cuentas.find((cuenta) => cuenta.id === id)?.nombre ?? (id ? 'Cuenta eliminada' : 'Sin cuenta');
 
   const encabezados = [
     'Fecha',
@@ -210,6 +256,7 @@ export const facturasACSV = (facturas = [], { incluirProyecto = false, proyectos
     'IVA',
     'Total',
     'Metodo de pago',
+    'Cuenta',
     'Notas',
   ];
 
@@ -231,6 +278,7 @@ export const facturasACSV = (facturas = [], { incluirProyecto = false, proyectos
       formatearNumero(factura.impuesto),
       formatearNumero(factura.total),
       factura.metodoPago,
+      nombreCuenta(factura.cuentaId),
       (factura.notas ?? '').replace(/\r?\n/g, ' '),
     ].map(escapar).join(';');
   });
@@ -246,6 +294,7 @@ export const facturasACSV = (facturas = [], { incluirProyecto = false, proyectos
     '',
     formatearNumero(resumen.impuesto),
     formatearNumero(resumen.total),
+    '',
     '',
     '',
   ].map(escapar).join(';');

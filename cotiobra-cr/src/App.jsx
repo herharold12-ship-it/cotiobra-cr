@@ -5,15 +5,19 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from 'firebase/firestore';
 import { auth, db } from './firebase.js';
 import Login from './Login';
 import Gastos from './gastos/Gastos.jsx';
+import Usuarios from './usuarios/Usuarios.jsx';
+import { esAdmin as esPerfilAdmin, resolverPerfil } from './usuarios/acceso.js';
 import { calcularTotales, construirItems, PORCENTAJES_POR_DEFECTO } from './calculos.js';
 import { aMonto, formatearCRC, formatearFecha } from './formato.js';
 
@@ -81,6 +85,9 @@ export default function App() {
   // --- SESIÓN ---
   const [usuario, setUsuario] = useState(null);
   const [verificandoSesion, setVerificandoSesion] = useState(true);
+  const [perfil, setPerfil] = useState(null);
+  const [cargandoPerfil, setCargandoPerfil] = useState(false);
+  const [errorPerfil, setErrorPerfil] = useState('');
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -89,6 +96,71 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // --- PERFIL Y PERMISOS (solo el administrador autoriza correos) ---
+  useEffect(() => {
+    // Sin sesión no hay permisos que cargar (se muestra el Login).
+    if (!usuario) return undefined;
+
+    let vigente = true;
+    const cargarPerfil = async () => {
+      setCargandoPerfil(true);
+      setErrorPerfil('');
+      const email = (usuario.email ?? '').toLowerCase();
+
+      try {
+        const [snapPerfil, snapAcceso] = await Promise.all([
+          getDoc(doc(db, 'usuarios', usuario.uid)),
+          getDoc(doc(db, 'accesos', email)),
+        ]);
+
+        if (!vigente) return;
+
+        const resuelto = resolverPerfil({
+          uid: usuario.uid,
+          email,
+          perfil: snapPerfil.exists() ? snapPerfil.data() : null,
+          acceso: snapAcceso.exists() ? snapAcceso.data() : null,
+        });
+
+        // Primer ingreso de un correo ya autorizado: se crea su perfil.
+        if (resuelto.pendienteDeAlta && !snapPerfil.exists() && !resuelto.sinAcceso) {
+          try {
+            await setDoc(
+              doc(db, 'usuarios', usuario.uid),
+              {
+                email,
+                nombre: resuelto.nombre ?? '',
+                rol: resuelto.rol,
+                activo: true,
+                creadoEn: serverTimestamp(),
+              },
+              { merge: true },
+            );
+          } catch (error) {
+            console.warn('No se pudo crear el perfil automáticamente:', error);
+          }
+        }
+
+        setPerfil(resuelto);
+      } catch (error) {
+        console.error('Error cargando el perfil:', error);
+        if (!vigente) return;
+        // Si Firestore falla, el administrador raíz conserva su acceso.
+        setPerfil(resolverPerfil({ uid: usuario.uid, email }));
+        setErrorPerfil('No se pudieron verificar tus permisos en línea.');
+      } finally {
+        if (vigente) setCargandoPerfil(false);
+      }
+    };
+
+    cargarPerfil();
+    return () => {
+      vigente = false;
+    };
+  }, [usuario]);
+
+  const esAdmin = esPerfilAdmin(perfil);
 
   // --- AVISOS (reemplazan a los alert del navegador) ---
   const [aviso, setAviso] = useState(null);
@@ -211,6 +283,7 @@ export default function App() {
   const handleCerrarSesion = async () => {
     try {
       await signOut(auth);
+      setPerfil(null);
       notificar('Sesión cerrada correctamente.');
     } catch (error) {
       notificar(`No se pudo cerrar la sesión: ${mensajeDeError(error)}`, 'error');
@@ -370,6 +443,39 @@ export default function App() {
     return <Login />;
   }
 
+  if (cargandoPerfil && !perfil) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-300">
+        Verificando permisos...
+      </div>
+    );
+  }
+
+  if (perfil?.sinAcceso) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
+        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center shadow-xl">
+          <span className="text-4xl">🔒</span>
+          <h1 className="text-lg font-bold text-white mt-3">Cuenta no autorizada</h1>
+          <p className="text-sm text-slate-400 mt-2">
+            El correo <span className="font-mono text-slate-200">{usuario.email}</span> no tiene acceso a esta empresa.
+          </p>
+          <p className="text-xs text-slate-500 mt-2">
+            Pídele al administrador que autorice tu correo desde la sección <strong>Usuarios</strong>.
+          </p>
+          {errorPerfil && <p className="text-xs text-amber-400 mt-2">{errorPerfil}</p>}
+          <button
+            type="button"
+            onClick={handleCerrarSesion}
+            className="mt-5 w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-semibold px-4 py-2 rounded-lg border border-slate-700"
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const botonTabla =
     'bg-blue-600/80 hover:bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg border border-blue-500 transition-colors';
 
@@ -437,8 +543,27 @@ export default function App() {
           >
             <span>📋</span> Historial
           </button>
-          <span className="hidden sm:block text-[11px] text-slate-400 max-w-[160px] truncate" title={usuario.email ?? ''}>
-            {usuario.email}
+          {esAdmin && (
+            <button
+              type="button"
+              onClick={() => setVistaActual('usuarios')}
+              className={`flex items-center gap-2 font-medium text-sm px-4 py-2 rounded-lg transition-colors ${
+                vistaActual === 'usuarios'
+                  ? 'bg-amber-500 text-slate-950'
+                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700'
+              }`}
+            >
+              <span>🔐</span> Usuarios
+            </button>
+          )}
+          <span
+            className="hidden sm:flex flex-col items-end leading-tight max-w-[190px]"
+            title={`${usuario.email ?? ''} — ${perfil?.rol ?? 'sin perfil'}`}
+          >
+            <span className="text-[11px] text-slate-300 truncate">{usuario.email}</span>
+            <span className="text-[10px] text-slate-500">
+              {esAdmin ? '👑 Administrador' : perfil?.rol === 'capturista' ? '✍️ Capturista' : '👀 Solo lectura'}
+            </span>
           </span>
           <button
             type="button"
@@ -1097,7 +1222,12 @@ export default function App() {
 
         {vistaActual === 'gastos' && (
           /* VISTA FACTURERO DE GASTOS REALES */
-          <Gastos usuario={usuario} notificar={notificar} />
+          <Gastos usuario={usuario} notificar={notificar} esAdmin={esAdmin} />
+        )}
+
+        {vistaActual === 'usuarios' && esAdmin && (
+          /* VISTA ADMINISTRACIÓN DE ACCESOS */
+          <Usuarios perfil={perfil} notificar={notificar} />
         )}
       </main>
     </div>
