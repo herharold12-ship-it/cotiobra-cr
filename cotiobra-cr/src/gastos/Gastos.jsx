@@ -25,6 +25,9 @@ import {
 import { combinarProveedores, idProveedor, normalizarProveedor } from './proveedores.js';
 import {
   calcularResumenPlanillas,
+  describirCalculo,
+  detalleCorto,
+  modalidadPorId,
   normalizarPlanilla,
   planillaVacia,
   planillasACSV,
@@ -1267,9 +1270,23 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
                   <p className="text-[11px] text-green-200/60 mt-1">Sin IVA · {resumenPlanilla.cantidad} pago(s)</p>
                 </div>
                 <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-400">Días pagados</p>
-                  <p className="text-2xl font-bold text-slate-100 font-mono mt-1">{resumenPlanilla.dias}</p>
-                  <p className="text-[11px] text-slate-500 mt-1">Jornales acumulados</p>
+                  <p className="text-[11px] uppercase tracking-wide text-slate-400">Horas, días y semanas pagados</p>
+                  {resumenPlanilla.porModalidad.length === 0 ? (
+                    <p className="text-2xl font-bold text-slate-500 font-mono mt-1">—</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {resumenPlanilla.porModalidad.map((fila) => (
+                        <span
+                          key={fila.id}
+                          className={`px-1.5 py-0.5 rounded-full border text-[11px] font-mono ${fila.chip}`}
+                          title={`${fila.nombre} · ${fila.pagos} pago(s)`}
+                        >
+                          {fila.id === 'fijo' ? `${fila.pagos} fijo(s)` : `${fila.cantidad} ${fila.abreviatura}`}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-slate-500 mt-1">Según la forma de pago de cada registro</p>
                 </div>
                 <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4">
                   <p className="text-[11px] uppercase tracking-wide text-slate-400">Trabajadores</p>
@@ -1289,7 +1306,7 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
                         <tr className="text-slate-400 border-b border-slate-800">
                           <th className="text-left py-2 font-medium">Trabajador</th>
                           <th className="text-center py-2 font-medium">Pagos</th>
-                          <th className="text-center py-2 font-medium">Días</th>
+                          <th className="text-center py-2 font-medium">Cantidad trabajada</th>
                           <th className="text-right py-2 font-medium">Total pagado</th>
                         </tr>
                       </thead>
@@ -1298,7 +1315,7 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
                           <tr key={trabajador.nombre}>
                             <td className="py-2 text-slate-200">{trabajador.nombre}</td>
                             <td className="py-2 text-center text-slate-300 font-mono">{trabajador.pagos}</td>
-                            <td className="py-2 text-center text-slate-300 font-mono">{trabajador.dias}</td>
+                            <td className="py-2 text-center text-slate-300 font-mono">{trabajador.detalleTexto}</td>
                             <td className="py-2 text-right text-green-300 font-mono font-semibold">{formatearCRC(trabajador.total)}</td>
                           </tr>
                         ))}
@@ -1323,9 +1340,10 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
                         {proyectoActivo === PROYECTO_TODOS && (
                           <th className="p-2 text-left text-[11px] uppercase tracking-wide text-slate-400">Proyecto</th>
                         )}
+                        <th className="p-2 text-left text-[11px] uppercase tracking-wide text-slate-400">Forma de pago</th>
+                        <th className="p-2 text-center text-[11px] uppercase tracking-wide text-slate-400">Cantidad</th>
+                        <th className="p-2 text-right text-[11px] uppercase tracking-wide text-slate-400">Tarifa</th>
                         <th className="p-2 text-left text-[11px] uppercase tracking-wide text-slate-400">Período</th>
-                        <th className="p-2 text-center text-[11px] uppercase tracking-wide text-slate-400">Días</th>
-                        <th className="p-2 text-right text-[11px] uppercase tracking-wide text-slate-400">Jornal</th>
                         <th className="p-2 text-right text-[11px] uppercase tracking-wide text-slate-400">Extras</th>
                         <th className="p-2 text-right text-[11px] uppercase tracking-wide text-slate-400">Deducc.</th>
                         <th className="p-2 text-right text-[11px] uppercase tracking-wide text-slate-400">Total</th>
@@ -1336,7 +1354,7 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
                     <tbody className="divide-y divide-slate-800 bg-slate-900/60">
                       {planillasDelProyecto.length === 0 && (
                         <tr>
-                          <td colSpan={proyectoActivo === PROYECTO_TODOS ? 12 : 11} className="p-8 text-center text-sm text-slate-400">
+                          <td colSpan={proyectoActivo === PROYECTO_TODOS ? 13 : 12} className="p-8 text-center text-sm text-slate-400">
                             Aún no hay pagos de planilla. Usa “+ Registrar pago de planilla”.
                           </td>
                         </tr>
@@ -1351,14 +1369,29 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
                               <span className="block truncate max-w-[130px]">{nombreProyecto(planilla.proyectoId)}</span>
                             </td>
                           )}
+                          <td className="p-2 whitespace-nowrap">
+                            {(() => {
+                              const modalidad = modalidadPorId(planilla.modalidad);
+                              return (
+                                <span
+                                  className={`px-2 py-0.5 rounded-full border text-[10px] ${modalidad.chip}`}
+                                  title={describirCalculo(planilla)}
+                                >
+                                  {modalidad.icono} {modalidad.nombre}
+                                </span>
+                              );
+                            })()}
+                          </td>
+                          <td className="p-2 text-center font-mono text-xs text-slate-300 whitespace-nowrap">
+                            {detalleCorto(planilla)}
+                          </td>
+                          <td className="p-2 text-right font-mono text-xs text-slate-300">{formatearCRC(planilla.tarifa)}</td>
                           <td className="p-2 text-[11px] text-slate-400 whitespace-nowrap">
                             {planilla.periodoDesde || planilla.periodoHasta
                               ? `${fechaISOaTexto(planilla.periodoDesde) || '—'} → ${fechaISOaTexto(planilla.periodoHasta) || '—'}`
                               : '—'}
                           </td>
-                          <td className="p-2 text-center font-mono text-xs text-slate-300">{planilla.dias}</td>
-                          <td className="p-2 text-right font-mono text-xs text-slate-300">{formatearCRC(planilla.jornalDia)}</td>
-                          <td className="p-2 text-right font-mono text-xs text-slate-300">{formatearCRC(planilla.horasExtra)}</td>
+                          <td className="p-2 text-right font-mono text-xs text-slate-300">{formatearCRC(planilla.extras)}</td>
                           <td className="p-2 text-right font-mono text-xs text-red-300">{formatearCRC(planilla.deducciones)}</td>
                           <td className="p-2 text-right font-mono text-sm font-semibold text-green-300">{formatearCRC(planilla.total)}</td>
                           <td className="p-2 text-[11px] text-slate-400">
@@ -1393,8 +1426,10 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
                           <td className="p-2 text-xs" colSpan={proyectoActivo === PROYECTO_TODOS ? 5 : 4}>
                             Total planilla ({resumenPlanilla.cantidad} pago{resumenPlanilla.cantidad === 1 ? '' : 's'})
                           </td>
-                          <td className="p-2 text-center font-mono text-xs">{resumenPlanilla.dias}</td>
-                          <td colSpan={3}></td>
+                          <td className="p-2 text-center font-mono text-[10px] text-slate-400">
+                            {resumenPlanilla.porModalidad.map((fila) => (fila.id === 'fijo' ? `${fila.pagos} fijo(s)` : `${fila.cantidad} ${fila.abreviatura}`)).join(' · ') || '—'}
+                          </td>
+                          <td colSpan={4}></td>
                           <td className="p-2 text-right font-mono text-sm text-green-300">{formatearCRC(resumenPlanilla.total)}</td>
                           <td colSpan={2}></td>
                         </tr>
@@ -1428,6 +1463,7 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
           planilla={formularioPlanilla}
           proyectos={proyectos}
           cuentas={cuentas}
+          historial={planillas}
           guardando={guardando}
           onGuardar={guardarPlanilla}
           onCerrar={() => setFormularioPlanilla(null)}

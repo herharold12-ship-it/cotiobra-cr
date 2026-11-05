@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { calcularResumen, calcularResumenPorCuenta } from './resumen.js';
-import { calcularResumenPlanillas } from './planillas.js';
+import { calcularResumenPlanillas, detalleCorto, modalidadPorId } from './planillas.js';
 import { categoriaPorId } from './categorias.js';
 import { aNumero, fechaISOaTexto, formatearCRCPdf, formatearNumero, limpiarNombreArchivo } from '../formato.js';
 
@@ -184,7 +184,13 @@ export const crearReporteGastos = (datos, docExistente) => {
       resumen.sinIva > 0 ? ` (${resumen.sinIva} sin IVA)` : ''
     } · ${resumenPlanilla.cantidad} ${
       resumenPlanilla.cantidad === 1 ? 'pago de planilla' : 'pagos de planilla'
-    } · ${resumenPlanilla.dias} días de jornal`,
+    }${
+      resumenPlanilla.porModalidad.length > 0
+        ? ` (${resumenPlanilla.porModalidad
+            .map((fila) => (fila.id === 'fijo' ? `${fila.pagos} fijo(s)` : `${formatearNumero(fila.cantidad)} ${fila.abreviatura}`))
+            .join(' · ')})`
+        : ''
+    }`,
     MARGEN,
     y + 4,
   );
@@ -339,15 +345,15 @@ export const crearReporteGastos = (datos, docExistente) => {
   } else {
     autoTable(doc, {
       startY: y + 3,
-      head: [['Trabajador', 'Pagos', 'Días', 'Total pagado (CRC)', '% de la planilla']],
+      head: [['Trabajador', 'Pagos', 'Cantidad trabajada', 'Total pagado (CRC)', '% de la planilla']],
       body: resumenPlanilla.trabajadores.map((trabajador) => [
         trabajador.nombre,
         `${trabajador.pagos}`,
-        `${formatearNumero(trabajador.dias)}`,
+        trabajador.detalleTexto || 'Monto fijo',
         formatearNumero(trabajador.total),
         `${formatearNumero(resumenPlanilla.total > 0 ? (trabajador.total / resumenPlanilla.total) * 100 : 0)}%`,
       ]),
-      foot: [['Total', `${resumenPlanilla.cantidad}`, formatearNumero(resumenPlanilla.dias), formatearNumero(resumenPlanilla.total), '100%']],
+      foot: [['Total', `${resumenPlanilla.cantidad}`, '', formatearNumero(resumenPlanilla.total), '100%']],
       theme: 'grid',
       margin: { left: MARGEN, right: MARGEN, bottom: 24 },
       rowPageBreak: 'avoid',
@@ -419,19 +425,21 @@ export const crearReporteGastos = (datos, docExistente) => {
     seccion('DETALLE DE PLANILLA');
     autoTable(doc, {
       startY: y + 3,
-      head: [['Fecha', 'Trabajador', 'Puesto', 'Días', 'Período', 'Pagado con', 'Total (CRC)']],
+      head: [['Fecha', 'Trabajador', 'Puesto', 'Forma de pago', 'Cantidad', 'Tarifa (CRC)', 'Período', 'Pagado con', 'Total (CRC)']],
       body: planillas.map((planilla) => [
         fechaISOaTexto(planilla.fecha),
         planilla.trabajador,
         planilla.puesto || '—',
-        formatearNumero(planilla.dias),
+        modalidadPorId(planilla.modalidad).nombre,
+        detalleCorto(planilla),
+        formatearNumero(planilla.tarifa),
         planilla.periodoDesde || planilla.periodoHasta
           ? `${fechaISOaTexto(planilla.periodoDesde)} al ${fechaISOaTexto(planilla.periodoHasta)}`
           : '—',
         nombreCuenta(cuentas, planilla.cuentaId),
         formatearNumero(planilla.total),
       ]),
-      foot: [['Totales', '', '', formatearNumero(resumenPlanilla.dias), '', '', formatearNumero(resumenPlanilla.total)]],
+      foot: [['Totales', '', '', '', '', '', '', '', formatearNumero(resumenPlanilla.total)]],
       theme: 'grid',
       margin: { left: MARGEN, right: MARGEN, bottom: 24 },
       styles: { fontSize: 7, cellPadding: 1.4, textColor: GRIS, overflow: 'linebreak' },
@@ -440,13 +448,15 @@ export const crearReporteGastos = (datos, docExistente) => {
       alternateRowStyles: { fillColor: [250, 250, 252] },
       rowPageBreak: 'avoid',
       columnStyles: {
-        0: { cellWidth: 18 },
-        1: { cellWidth: 36 },
-        2: { cellWidth: 30 },
-        3: { halign: 'center', cellWidth: 12 },
-        4: { cellWidth: 34 },
-        5: { cellWidth: 26 },
-        6: { halign: 'right', cellWidth: 26 },
+        0: { cellWidth: 15 },
+        1: { cellWidth: 30 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 20 },
+        4: { halign: 'center', cellWidth: 13 },
+        5: { halign: 'right', cellWidth: 18 },
+        6: { cellWidth: 26 },
+        7: { cellWidth: 20 },
+        8: { halign: 'right', cellWidth: 20 },
       },
     });
   }
