@@ -105,15 +105,27 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
   const [modalReasignar, setModalReasignar] = useState(false);
   const [reasignando, setReasignando] = useState(false);
   const [exportando, setExportando] = useState(false);
+  const [coleccionesFallidas, setColeccionesFallidas] = useState([]);
 
   const consultarDatos = useCallback(async () => {
-    const [snapProyectos, snapFacturas, snapCuentas, snapProveedores, snapPlanillas] = await Promise.all([
-      getDocs(collection(db, 'proyectos')),
-      getDocs(collection(db, 'facturas')),
-      getDocs(collection(db, 'cuentas')),
-      getDocs(collection(db, 'proveedores')),
-      getDocs(collection(db, 'planillas')),
-    ]);
+    const colecciones = ['proyectos', 'facturas', 'cuentas', 'proveedores', 'planillas'];
+    // allSettled: si una colección falla (por ejemplo reglas de Firestore
+    // desactualizadas), las demás se cargan igual en vez de romper la pantalla.
+    const resultados = await Promise.allSettled(colecciones.map((nombre) => getDocs(collection(db, nombre))));
+
+    const fallidas = resultados
+      .map((resultado, indice) => (resultado.status === 'rejected' ? colecciones[indice] : null))
+      .filter(Boolean);
+
+    if (fallidas.length === colecciones.length) {
+      const primerError = resultados.find((resultado) => resultado.status === 'rejected')?.reason;
+      throw primerError ?? new Error('No se pudo leer Firestore.');
+    }
+
+    const vacio = { docs: [] };
+    const [snapProyectos, snapFacturas, snapCuentas, snapProveedores, snapPlanillas] = resultados.map((resultado) =>
+      resultado.status === 'fulfilled' ? resultado.value : vacio,
+    );
 
     const listaProyectos = snapProyectos.docs
       .map((documento) => ({ id: documento.id, ...documento.data() }))
@@ -142,6 +154,7 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
       cuentas: listaCuentas,
       proveedores: listaProveedores,
       planillas: listaPlanillas,
+      fallidas,
     };
   }, []);
 
@@ -157,6 +170,7 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
         setCuentas(datos.cuentas);
         setProveedoresGuardados(datos.proveedores);
         setPlanillas(datos.planillas);
+        setColeccionesFallidas(datos.fallidas ?? []);
         setErrorCarga('');
       } catch (error) {
         if (!vigente) return;
@@ -183,6 +197,7 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
       setCuentas(datos.cuentas);
       setProveedoresGuardados(datos.proveedores);
       setPlanillas(datos.planillas);
+      setColeccionesFallidas(datos.fallidas ?? []);
     } catch (error) {
       console.error('Error cargando gastos:', error);
       setErrorCarga(mensajeFirestore(error));
@@ -638,7 +653,7 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
             <span>🧾</span> Gastos reales de la obra
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Facturas, planilla, cuentas de pago y control del IVA del 13% de Hacienda.
+            Facturas, planilla de personal y control del IVA del 13% de Hacienda.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -652,15 +667,25 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
             </button>
           )}
           {vista === 'facturas' ? (
-            <button
-              type="button"
-              onClick={() => abrirNueva()}
-              disabled={proyectos.length === 0}
-              className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-              title={proyectos.length === 0 ? 'Primero crea un proyecto' : 'Registrar una factura'}
-            >
-              + Registrar factura
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setVista('planilla')}
+                className={claseBotonSecundario}
+                title="Ir a la planilla de personal"
+              >
+                👷 Planilla
+              </button>
+              <button
+                type="button"
+                onClick={() => abrirNueva()}
+                disabled={proyectos.length === 0}
+                className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                title={proyectos.length === 0 ? 'Primero crea un proyecto' : 'Registrar una factura'}
+              >
+                + Registrar factura
+              </button>
+            </>
           ) : (
             <button
               type="button"
@@ -678,6 +703,17 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
         <div className="rounded-xl border border-red-800 bg-red-950/50 px-4 py-3 text-sm text-red-200 flex flex-wrap items-center justify-between gap-3">
           <span>No se pudo cargar el facturero: {errorCarga}</span>
           <button type="button" onClick={recargar} className="underline hover:no-underline">Reintentar</button>
+        </div>
+      )}
+
+      {coleccionesFallidas.length > 0 && !errorCarga && (
+        <div className="rounded-xl border border-amber-800 bg-amber-950/40 px-4 py-3 text-xs text-amber-100 space-y-1">
+          <p className="font-semibold">Falta actualizar las reglas de Firestore</p>
+          <p>
+            No se pudieron leer: <span className="font-mono">{coleccionesFallidas.join(', ')}</span>. Las demás secciones
+            funcionan igual; para habilitarlas corre <span className="font-mono">npm run deploy:rules</span> (o
+            <span className="font-mono"> npm run deploy:todo</span>).
+          </p>
         </div>
       )}
 
@@ -774,25 +810,42 @@ export default function Gastos({ usuario, notificar, esAdmin = false }) {
             </div>
           </div>
 
-          {/* PESTAÑAS */}
-          <div className="flex flex-wrap items-center gap-2 border-b border-slate-800">
+          {/* PESTAÑAS: Facturas | Planilla */}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-1.5 flex flex-wrap items-center gap-1.5">
             {[
-              { id: 'facturas', etiqueta: `🧾 Facturas (${facturasDelProyecto.length})` },
-              { id: 'planilla', etiqueta: `👷 Planilla (${planillasDelProyecto.length})` },
-            ].map((opcion) => (
-              <button
-                key={opcion.id}
-                type="button"
-                onClick={() => setVista(opcion.id)}
-                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-                  vista === opcion.id
-                    ? 'border-blue-500 text-white'
-                    : 'border-transparent text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {opcion.etiqueta}
-              </button>
-            ))}
+              { id: 'facturas', icono: '🧾', titulo: 'Facturas', detalle: `${facturasDelProyecto.length} registrada(s)`, monto: gastoFacturas },
+              { id: 'planilla', icono: '👷', titulo: 'Planilla', detalle: `${planillasDelProyecto.length} pago(s)`, monto: resumenPlanilla.total },
+            ].map((opcion) => {
+              const activa = vista === opcion.id;
+              return (
+                <button
+                  key={opcion.id}
+                  type="button"
+                  onClick={() => setVista(opcion.id)}
+                  aria-pressed={activa}
+                  className={`flex-1 min-w-[150px] flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+                    activa ? 'bg-blue-600 text-white shadow' : 'text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="text-lg">{opcion.icono}</span>
+                  <span className="leading-tight">
+                    <span className="block text-sm font-semibold">{opcion.titulo}</span>
+                    <span className={`block text-[11px] ${activa ? 'text-blue-100' : 'text-slate-500'}`}>
+                      {opcion.detalle} · {formatearCRC(opcion.monto)}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => (vista === 'planilla' ? abrirNuevaPlanilla() : setVista('planilla'))}
+              disabled={proyectos.length === 0}
+              className="ml-auto bg-green-700/80 hover:bg-green-600 text-white text-xs font-semibold px-3 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Registrar un pago de planilla"
+            >
+              + Pago de planilla
+            </button>
           </div>
 
           {vista === 'facturas' ? (
